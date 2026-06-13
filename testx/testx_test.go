@@ -2,6 +2,7 @@ package testx
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -21,4 +22,16 @@ func TestJSONHelpers(t *testing.T) {
 	if decoded["count"] != 2 {
 		t.Fatalf("unexpected value: %#v", decoded)
 	}
+}
+
+func TestServeAndAssertJSON(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"status":"queued"}`))
+	})
+	recorder := Serve(t, handler, httptest.NewRequest(http.MethodGet, "/", nil))
+	AssertStatus(t, recorder.Code, http.StatusAccepted)
+	AssertJSON(t, recorder.Body, struct {
+		Status string `json:"status"`
+	}{Status: "queued"})
 }

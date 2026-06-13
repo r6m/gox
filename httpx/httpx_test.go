@@ -19,6 +19,16 @@ func TestOK(t *testing.T) {
 	}
 }
 
+func TestWriteJSONIsRaw(t *testing.T) {
+	rec := httptest.NewRecorder()
+	if err := WriteJSON(rec, http.StatusAccepted, map[string]string{"status": "queued"}); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusAccepted || strings.TrimSpace(rec.Body.String()) != `{"status":"queued"}` {
+		t.Fatalf("unexpected response: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestBindInvalidJSON(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{"))
 	_, err := Bind[map[string]any](req)
@@ -46,6 +56,20 @@ func TestHandlerUnknownError(t *testing.T) {
 		return errors.New("database password leaked")
 	})(rec, req)
 	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "password") {
+		t.Fatalf("unexpected response: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlerWithErrorWriter(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	writer := ErrorWriterFunc(func(w http.ResponseWriter, _ *http.Request, err error) {
+		http.Error(w, err.Error(), http.StatusTeapot)
+	})
+	HandlerWithErrorWriter(func(http.ResponseWriter, *http.Request) error {
+		return errors.New("mapped")
+	}, writer)(rec, req)
+	if rec.Code != http.StatusTeapot || !strings.Contains(rec.Body.String(), "mapped") {
 		t.Fatalf("unexpected response: %d %s", rec.Code, rec.Body.String())
 	}
 }

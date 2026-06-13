@@ -21,11 +21,17 @@ func (e FieldErrors) Error() string { return "validation failed" }
 func (e FieldErrors) Fields() map[string]string { return e }
 
 var (
-	instance = newValidator()
-	mu       sync.RWMutex
+	defaultValidator = New()
 )
 
-func newValidator() *validator.Validate {
+// Validator is an independently configurable validator.
+type Validator struct {
+	instance *validator.Validate
+	mu       sync.RWMutex
+}
+
+// New creates a validator configured to report JSON field names.
+func New() *Validator {
 	v := validator.New()
 	v.RegisterTagNameFunc(func(field reflect.StructField) string {
 		name := strings.SplitN(field.Tag.Get("json"), ",", 2)[0]
@@ -37,14 +43,14 @@ func newValidator() *validator.Validate {
 		}
 		return name
 	})
-	return v
+	return &Validator{instance: v}
 }
 
 // Struct validates a struct value.
-func Struct(value any) error {
-	mu.RLock()
-	err := instance.Struct(value)
-	mu.RUnlock()
+func (v *Validator) Struct(value any) error {
+	v.mu.RLock()
+	err := v.instance.Struct(value)
+	v.mu.RUnlock()
 	if err == nil {
 		return nil
 	}
@@ -53,6 +59,20 @@ func Struct(value any) error {
 		return fields
 	}
 	return err
+}
+
+// RegisterValidation registers a custom validation tag on v.
+func (v *Validator) RegisterValidation(tag string, fn validator.Func) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.instance.RegisterValidation(tag, fn)
+}
+
+// Struct validates with the package default validator.
+//
+// Use New when custom registrations should be isolated.
+func Struct(value any) error {
+	return defaultValidator.Struct(value)
 }
 
 // Fields converts validator errors to readable field errors.
@@ -77,10 +97,10 @@ func Fields(err error) FieldErrors {
 }
 
 // RegisterValidation registers a custom validation tag.
+//
+// Deprecated: create a Validator with New and register on that instance.
 func RegisterValidation(tag string, fn validator.Func) error {
-	mu.Lock()
-	defer mu.Unlock()
-	return instance.RegisterValidation(tag, fn)
+	return defaultValidator.RegisterValidation(tag, fn)
 }
 
 func message(err validator.FieldError) string {

@@ -2,26 +2,60 @@
 package logx
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"strings"
 )
 
+// Format selects a slog handler format.
+type Format string
+
+const (
+	// FormatAuto uses text for local environments and JSON otherwise.
+	FormatAuto Format = ""
+	// FormatText selects slog.TextHandler.
+	FormatText Format = "text"
+	// FormatJSON selects slog.JSONHandler.
+	FormatJSON Format = "json"
+)
+
 // Config configures a slog logger.
 type Config struct {
-	Env   string
-	Level string
+	Env         string
+	Level       string
+	Writer      io.Writer
+	Format      Format
+	AddSource   bool
+	ReplaceAttr func([]string, slog.Attr) slog.Attr
 }
 
-// New creates a text logger for local environments and JSON elsewhere.
+// New creates a configured slog logger.
 func New(cfg Config) *slog.Logger {
-	options := &slog.HandlerOptions{Level: parseLevel(cfg.Level)}
+	writer := cfg.Writer
+	if writer == nil {
+		writer = os.Stderr
+	}
+	options := &slog.HandlerOptions{
+		Level:       parseLevel(cfg.Level),
+		AddSource:   cfg.AddSource,
+		ReplaceAttr: cfg.ReplaceAttr,
+	}
 	var handler slog.Handler
-	switch strings.ToLower(cfg.Env) {
-	case "local", "dev", "development":
-		handler = slog.NewTextHandler(os.Stderr, options)
+	format := cfg.Format
+	if format == FormatAuto {
+		switch strings.ToLower(cfg.Env) {
+		case "local", "dev", "development":
+			format = FormatText
+		default:
+			format = FormatJSON
+		}
+	}
+	switch format {
+	case FormatText:
+		handler = slog.NewTextHandler(writer, options)
 	default:
-		handler = slog.NewJSONHandler(os.Stderr, options)
+		handler = slog.NewJSONHandler(writer, options)
 	}
 	return slog.New(handler)
 }

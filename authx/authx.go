@@ -1,4 +1,8 @@
 // Package authx provides reusable authentication primitives.
+//
+// Password hashing supports bcrypt and Argon2id without imposing password
+// strength policy. Bearer tokens, JWTs, identity context values, and simple
+// authorization middleware remain independent of password storage.
 package authx
 
 import (
@@ -8,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Claims contains common application JWT claims.
@@ -16,17 +19,6 @@ type Claims struct {
 	UserID string   `json:"user_id"`
 	Roles  []string `json:"roles,omitempty"`
 	jwt.RegisteredClaims
-}
-
-// HashPassword hashes a password with bcrypt's default cost.
-func HashPassword(password string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(hash), err
-}
-
-// CheckPassword verifies a password against a bcrypt hash.
-func CheckPassword(hash string, password string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
 // BearerToken extracts a bearer token from the Authorization header.

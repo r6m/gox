@@ -1,4 +1,6 @@
-// Package envx provides simple environment variable parsing.
+// Package envx provides legacy environment variable parsing.
+//
+// Deprecated: use configx for typed, error-returning configuration loading.
 package envx
 
 import (
