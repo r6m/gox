@@ -13,6 +13,11 @@ go get github.com/r6m/gox
 
 | Package | Purpose |
 | --- | --- |
+| `blobx` | Streaming filesystem and in-memory blob storage |
+| `blobx/s3` | Optional AWS SDK v2 S3-compatible storage |
+| `cachex` | Byte cache, memory implementation, JSON helpers, and test fake |
+| `cachex/redis` | Optional go-redis cache implementation |
+| `emailx` | SMTP delivery, MIME composition, templates, and test recorder |
 | `configx` | Typed environment configuration |
 | `fieldx` | Three-state fields for PATCH-style DTOs |
 | `httpx` | JSON transport and error-returning handlers |
@@ -25,6 +30,132 @@ go get github.com/r6m/gox
 | `testx` | HTTP and PostgreSQL test helpers |
 | `retryx` | Pure exponential backoff calculations |
 | `envx` | Deprecated environment lookup helpers |
+
+## Blob Storage
+
+`blobx.Store` streams object bodies and does not model directories:
+
+```go
+store, err := blobx.NewFileStore(blobx.FileOptions{
+	Root: "./data/objects",
+})
+
+object, err := store.Put(ctx, "avatars/user-1.jpg", file, blobx.PutOptions{
+	ContentType: "image/jpeg",
+})
+
+body, metadata, err := store.Get(ctx, object.Key)
+if err != nil {
+	if errors.Is(err, blobx.ErrNotFound) {
+		// Handle a missing object.
+	}
+	return err
+}
+defer body.Close()
+```
+
+Putting an existing key overwrites it. Keys are canonical slash-separated
+relative names; absolute paths, backslashes, empty segments, `.` and `..` are
+rejected. Filesystem roots and S3 buckets belong to their concrete
+implementations. No cross-provider atomicity guarantee is made.
+
+S3 support is isolated from the core package:
+
+```go
+store, err := s3.New(awsS3Client, s3.Options{
+	Bucket:    "uploads",
+	KeyPrefix: "production",
+})
+
+url, err := store.PresignGet(ctx, "report.pdf", blobx.PresignOptions{
+	Expires: 15 * time.Minute,
+})
+```
+
+Presigning is the optional `blobx.Presigner` capability, not part of
+`blobx.Store`. `blobx.NewMemoryStore` is a race-safe test implementation.
+
+## Cache
+
+`cachex.Cache` deliberately stores bytes:
+
+```go
+cache := cachex.NewMemory()
+err := cache.Set(ctx, "session:"+id, encoded, 30*time.Minute)
+data, err := cache.Get(ctx, "session:"+id)
+if errors.Is(err, cachex.ErrMiss) {
+	// Recompute the value.
+}
+```
+
+Input and returned byte slices are copied. A zero TTL means no expiration; a
+negative TTL deletes the key. Expired values are misses. Context cancellation
+is returned as a context error, and provider failures are never converted into
+`ErrMiss`.
+
+JSON helpers stay outside the interface:
+
+```go
+err := cachex.SetJSON(ctx, cache, "user:"+id, user, time.Minute)
+user, err := cachex.GetJSON[User](ctx, cache, "user:"+id)
+```
+
+Redis support is isolated in `cachex/redis`:
+
+```go
+cache, err := redis.New(redisClient, redis.Options{
+	KeyPrefix: "myapp:",
+})
+```
+
+`cachex.NewFake` provides deterministic application tests.
+
+## Email
+
+`emailx.Sender` accepts only fully rendered messages:
+
+```go
+sender, err := emailx.NewSMTPSender(emailx.SMTPOptions{
+	Host:     "smtp.example.com",
+	Port:     587,
+	Username: username,
+	Password: password,
+})
+
+result, err := sender.Send(ctx, emailx.Message{
+	From:    emailx.Address{Name: "Example", Email: "hello@example.com"},
+	To:      []emailx.Address{{Email: "user@example.com"}},
+	Subject: "Welcome",
+	Text:    "Welcome to Example.",
+	HTML:    "<p>Welcome to Example.</p>",
+})
+```
+
+Messages support To, CC, BCC, Reply-To, custom non-reserved headers, and
+streaming attachments. An attachment provides a repeatable `Open` function;
+the sender opens it once per delivery and always closes the returned reader.
+BCC recipients are sent through the SMTP envelope and omitted from MIME
+headers. SMTP requires implicit TLS or STARTTLS by default;
+`AllowInsecure` is an explicit development-only escape hatch.
+
+Templates are separate from transport and parsed during construction:
+
+```go
+renderer, err := emailx.NewTemplateRenderer(templateFS, []emailx.TemplateSpec{{
+	Name:        "welcome",
+	Message:     baseMessage,
+	SubjectPath: "email/welcome.subject",
+	TextPath:    "email/welcome.txt",
+	HTMLPath:    "email/welcome.html",
+}})
+
+message, err := renderer.Render(ctx, "welcome", data)
+result, err := sender.Send(ctx, message)
+```
+
+The renderer uses `text/template` for subject and text bodies and
+`html/template` for HTML. It is safe for concurrent rendering.
+`emailx.NewRecorder` records defensive message copies for tests.
 
 ## Configuration
 
