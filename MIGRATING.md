@@ -1,5 +1,25 @@
 # Migration Notes
 
+## Provider package flattening in 2.1.1
+
+S3 and Redis providers now live in their core package directories.
+
+Replace:
+
+```go
+store, err := s3.New(client, s3.Options{Bucket: bucket})
+cache, err := redis.New(client, redis.Options{KeyPrefix: prefix})
+```
+
+with:
+
+```go
+store, err := blobx.NewS3(client, blobx.S3Options{Bucket: bucket})
+cache, err := cachex.NewRedis(client, cachex.RedisOptions{KeyPrefix: prefix})
+```
+
+Concrete provider types are now `blobx.S3Store` and `cachex.RedisCache`.
+
 ## `envx` to `configx`
 
 `envx` remains source-compatible but is deprecated. Replace scattered lookups:

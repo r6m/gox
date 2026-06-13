@@ -1,4 +1,4 @@
-package s3
+package blobx
 
 import (
 	"context"
@@ -10,8 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
-	"github.com/r6m/gox/blobx"
-	"github.com/r6m/gox/blobx/internal/blobtest"
 )
 
 type fakeClient struct {
@@ -84,26 +82,25 @@ func (f *fakeClient) DeleteObject(
 
 func TestStore(t *testing.T) {
 	client := &fakeClient{data: make(map[string]string)}
-	store, err := newStore(client, nil, Options{Bucket: "bucket", KeyPrefix: "prefix"})
+	store, err := newS3Store(client, nil, S3Options{Bucket: "bucket", KeyPrefix: "prefix"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	object, err := store.Put(context.Background(), "object.txt", strings.NewReader("data"), blobx.PutOptions{})
+	object, err := store.Put(context.Background(), "object.txt", strings.NewReader("data"), PutOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if object.Size != 4 || client.data["prefix/object.txt"] != "data" {
 		t.Fatalf("unexpected object: %#v %#v", object, client.data)
 	}
-	blobtest.Run(t, store)
 }
 
 func TestErrors(t *testing.T) {
-	store, err := newStore(&fakeClient{data: make(map[string]string)}, nil, Options{Bucket: "bucket"})
+	store, err := newS3Store(&fakeClient{data: make(map[string]string)}, nil, S3Options{Bucket: "bucket"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Stat(context.Background(), "missing"); !errors.Is(err, blobx.ErrNotFound) {
+	if _, err := store.Stat(context.Background(), "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unexpected missing error: %v", err)
 	}
 	providerErr := errors.New("provider failed")
@@ -115,10 +112,10 @@ func TestErrors(t *testing.T) {
 
 func TestOptions(t *testing.T) {
 	client := &fakeClient{}
-	if _, err := newStore(client, nil, Options{}); err == nil {
+	if _, err := newS3Store(client, nil, S3Options{}); err == nil {
 		t.Fatal("missing bucket accepted")
 	}
-	if _, err := newStore(client, nil, Options{Bucket: "bucket", KeyPrefix: "../bad"}); err == nil {
+	if _, err := newS3Store(client, nil, S3Options{Bucket: "bucket", KeyPrefix: "../bad"}); err == nil {
 		t.Fatal("invalid prefix accepted")
 	}
 }

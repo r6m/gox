@@ -13,10 +13,8 @@ go get github.com/r6m/gox
 
 | Package | Purpose |
 | --- | --- |
-| `blobx` | Streaming filesystem and in-memory blob storage |
-| `blobx/s3` | Optional AWS SDK v2 S3-compatible storage |
-| `cachex` | Byte cache, memory implementation, JSON helpers, and test fake |
-| `cachex/redis` | Optional go-redis cache implementation |
+| `blobx` | Streaming filesystem, memory, and S3-compatible blob storage |
+| `cachex` | Memory and Redis byte caches, JSON helpers, and test fake |
 | `emailx` | SMTP delivery, MIME composition, templates, and test recorder |
 | `configx` | Typed environment configuration |
 | `fieldx` | Three-state fields for PATCH-style DTOs |
@@ -59,10 +57,10 @@ relative names; absolute paths, backslashes, empty segments, `.` and `..` are
 rejected. Filesystem roots and S3 buckets belong to their concrete
 implementations. No cross-provider atomicity guarantee is made.
 
-S3 support is isolated from the core package:
+S3 support is available directly from `blobx`:
 
 ```go
-store, err := s3.New(awsS3Client, s3.Options{
+store, err := blobx.NewS3(awsS3Client, blobx.S3Options{
 	Bucket:    "uploads",
 	KeyPrefix: "production",
 })
@@ -100,10 +98,10 @@ err := cachex.SetJSON(ctx, cache, "user:"+id, user, time.Minute)
 user, err := cachex.GetJSON[User](ctx, cache, "user:"+id)
 ```
 
-Redis support is isolated in `cachex/redis`:
+Redis support is available directly from `cachex`:
 
 ```go
-cache, err := redis.New(redisClient, redis.Options{
+cache, err := cachex.NewRedis(redisClient, cachex.RedisOptions{
 	KeyPrefix: "myapp:",
 })
 ```
