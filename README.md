@@ -216,6 +216,16 @@ pointer and therefore loses the omitted-versus-null distinction. Zero a reused
 request DTO before decoding because `encoding/json` does not visit omitted
 keys.
 
+`validx` understands `fieldx.Field[T]` values in request structs. Unset fields
+are skipped unless the validation tag requires presence, while set fields are
+validated against their inner value.
+
+```go
+type UpdateUser struct {
+	Status fieldx.Field[string] `json:"status" validate:"oneof=active invited suspended"`
+}
+```
+
 ## HTTP
 
 Raw transport helpers do not impose an envelope:

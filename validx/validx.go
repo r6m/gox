@@ -26,8 +26,9 @@ var (
 
 // Validator is an independently configurable validator.
 type Validator struct {
-	instance *validator.Validate
-	mu       sync.RWMutex
+	instance         *validator.Validate
+	fieldxFieldTypes map[reflect.Type]struct{}
+	mu               sync.RWMutex
 }
 
 // New creates a validator configured to report JSON field names.
@@ -43,14 +44,19 @@ func New() *Validator {
 		}
 		return name
 	})
-	return &Validator{instance: v}
+	return &Validator{instance: v, fieldxFieldTypes: make(map[reflect.Type]struct{})}
 }
 
 // Struct validates a struct value.
 func (v *Validator) Struct(value any) error {
-	v.mu.RLock()
-	err := v.instance.Struct(value)
-	v.mu.RUnlock()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	skip := make(map[string]struct{})
+	v.prepareFieldxFields(reflect.ValueOf(value), "", skip)
+	err := v.instance.StructFiltered(value, func(ns []byte) bool {
+		_, ok := skip[string(ns)]
+		return ok
+	})
 	if err == nil {
 		return nil
 	}
@@ -66,6 +72,106 @@ func (v *Validator) RegisterValidation(tag string, fn validator.Func) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return v.instance.RegisterValidation(tag, fn)
+}
+
+func (v *Validator) prepareFieldxFields(value reflect.Value, namespace string, skip map[string]struct{}) {
+	value = dereference(value)
+	if !value.IsValid() || value.Kind() != reflect.Struct {
+		return
+	}
+	typ := value.Type()
+	if namespace == "" {
+		namespace = typ.Name()
+	}
+	for i := 0; i < value.NumField(); i++ {
+		fieldType := typ.Field(i)
+		if fieldType.PkgPath != "" && !fieldType.Anonymous {
+			continue
+		}
+		field := value.Field(i)
+		fieldNamespace := fieldType.Name
+		if namespace != "" {
+			fieldNamespace = namespace + "." + fieldType.Name
+		}
+		if isFieldxField(field.Type()) {
+			v.registerFieldxFieldType(field.Type())
+			if !fieldxIsSet(field) && !requiresPresence(fieldType.Tag.Get("validate")) {
+				skip[fieldNamespace] = struct{}{}
+			}
+			continue
+		}
+		v.prepareNestedFieldxFields(field, fieldNamespace, skip)
+	}
+}
+
+func (v *Validator) prepareNestedFieldxFields(value reflect.Value, namespace string, skip map[string]struct{}) {
+	value = dereference(value)
+	if !value.IsValid() {
+		return
+	}
+	switch value.Kind() {
+	case reflect.Struct:
+		v.prepareFieldxFields(value, namespace, skip)
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < value.Len(); i++ {
+			v.prepareNestedFieldxFields(value.Index(i), fmt.Sprintf("%s[%d]", namespace, i), skip)
+		}
+	}
+}
+
+func (v *Validator) registerFieldxFieldType(typ reflect.Type) {
+	if _, ok := v.fieldxFieldTypes[typ]; ok {
+		return
+	}
+	v.instance.RegisterCustomTypeFunc(fieldxValue, reflect.New(typ).Elem().Interface())
+	v.fieldxFieldTypes[typ] = struct{}{}
+}
+
+func fieldxValue(field reflect.Value) any {
+	if !field.CanInterface() {
+		return nil
+	}
+	values := field.MethodByName("Value").Call(nil)
+	if len(values) != 2 || !values[1].Bool() {
+		return nil
+	}
+	return values[0].Interface()
+}
+
+func fieldxIsSet(field reflect.Value) bool {
+	if !field.CanInterface() {
+		return false
+	}
+	values := field.MethodByName("IsSet").Call(nil)
+	return len(values) == 1 && values[0].Bool()
+}
+
+func isFieldxField(typ reflect.Type) bool {
+	return typ.Kind() == reflect.Struct &&
+		typ.PkgPath() == "github.com/r6m/gox/fieldx" &&
+		strings.HasPrefix(typ.Name(), "Field[")
+}
+
+func requiresPresence(tag string) bool {
+	for _, rule := range strings.Split(tag, ",") {
+		name, _, _ := strings.Cut(rule, "=")
+		for _, option := range strings.Split(name, "|") {
+			if option == "required" || strings.HasPrefix(option, "required_") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func dereference(value reflect.Value) reflect.Value {
+	for value.IsValid() && value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return reflect.Value{}
+		}
+		value = value.Elem()
+	}
+	return value
 }
 
 // Struct validates with the package default validator.

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/r6m/gox/fieldx"
 )
 
 func TestStructMessagesAndJSONNames(t *testing.T) {
@@ -63,5 +64,40 @@ func TestNestedJSONNames(t *testing.T) {
 	fields := Fields(Struct(input{}))
 	if fields["profile.name"] != "is required" {
 		t.Fatalf("unexpected fields: %#v", fields)
+	}
+}
+
+func TestFieldxFieldValidation(t *testing.T) {
+	type input struct {
+		Status fieldx.Field[string] `json:"status" validate:"oneof=active invited suspended"`
+	}
+
+	if err := Struct(input{}); err != nil {
+		t.Fatalf("unset field should be skipped: %v", err)
+	}
+	if err := Struct(input{Status: fieldx.Value("active")}); err != nil {
+		t.Fatalf("valid field value failed validation: %v", err)
+	}
+	fields := Fields(Struct(input{Status: fieldx.Value("disabled")}))
+	if fields["status"] != "must be one of: active invited suspended" {
+		t.Fatalf("unexpected invalid value fields: %#v", fields)
+	}
+	fields = Fields(Struct(input{Status: fieldx.Null[string]()}))
+	if fields["status"] != "must be one of: active invited suspended" {
+		t.Fatalf("unexpected null fields: %#v", fields)
+	}
+}
+
+func TestRequiredFieldxFieldValidation(t *testing.T) {
+	type input struct {
+		Status fieldx.Field[string] `json:"status" validate:"required,oneof=active invited suspended"`
+	}
+
+	fields := Fields(Struct(input{}))
+	if fields["status"] != "is required" {
+		t.Fatalf("unexpected unset required fields: %#v", fields)
+	}
+	if err := Struct(input{Status: fieldx.Value("invited")}); err != nil {
+		t.Fatalf("valid required field failed validation: %v", err)
 	}
 }
